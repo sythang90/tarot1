@@ -17,7 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const themeBtn = document.getElementById('theme-btn');
     const toggleMeaningsBtn = document.getElementById('toggle-meanings-btn');
     const cardModal = document.getElementById('card-modal');
-    const modalContent = document.querySelector('.modal-content');
+    const modalContent = document.querySelector('#card-modal .modal-content');
     const meaningsContainer = document.getElementById('meanings-container');
     const modalCardImg = document.getElementById('modal-card-img');
     const modalCardName = document.getElementById('modal-card-name');
@@ -29,6 +29,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let deck = [];
     let dealtCards = [];
     let isAnimating = false;
+    // Drag state
+    let activeCardElement = null;
+    let initialX, initialY, xOffset = 0, yOffset = 0;
 
     // --- Core Functions ---
 
@@ -120,7 +123,6 @@ document.addEventListener('DOMContentLoaded', () => {
     function createCardElement(card) {
         const cardDiv = document.createElement('div');
         cardDiv.classList.add('card');
-        cardDiv.draggable = true;
         cardDiv.dataset.id = card.id;
 
         cardDiv.innerHTML = `
@@ -135,32 +137,16 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
         
         cardDiv.addEventListener('click', () => handleCardClick(card.id));
-        cardDiv.addEventListener('dragstart', (e) => {
-            if (isAnimating) {
-                e.preventDefault();
-                return;
-            }
-            e.dataTransfer.setData('text/plain', card.id);
-            e.dataTransfer.setData('text/offset-x', e.offsetX);
-            e.dataTransfer.setData('text/offset-y', e.offsetY);
-            e.dataTransfer.effectAllowed = "move";
-
-            setTimeout(() => {
-                cardDiv.style.opacity = '0';
-            }, 0);
-        });
-
-        cardDiv.addEventListener('dragend', (e) => {
-            if (e.dataTransfer.dropEffect === 'none') {
-                 cardDiv.style.opacity = '1';
-                 cardDiv.style.pointerEvents = 'auto';
-            }
-        });
+        
+        // Add listeners for both mouse and touch events
+        cardDiv.addEventListener('mousedown', dragStart);
+        cardDiv.addEventListener('touchstart', dragStart, { passive: false });
 
         return cardDiv;
     }
 
     function handleCardClick(cardId) {
+        if (activeCardElement) return; // Don't flip if it was just dragged
         if (isAnimating) return;
         const cardState = dealtCards.find(c => c.cardData.id == cardId);
         if (!cardState || !cardState.inReadingArea) return;
@@ -180,7 +166,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (card.isReversed) {
             modalCardOrientation.textContent = 'Reversed';
         } else {
-            modalCardOrientation.textContent = ''; // Clear if not reversed
+            modalCardOrientation.textContent = '';
         }
 
         modalMeaningUp.textContent = card.meaning_up;
@@ -248,6 +234,103 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // --- Drag and Drop Logic (Mouse and Touch) ---
+
+    function dragStart(e) {
+        if (e.target.closest('.card')) {
+            activeCardElement = e.target.closest('.card');
+            
+            const cardState = dealtCards.find(c => c.cardData.id == activeCardElement.dataset.id);
+            if (!cardState) {
+                activeCardElement = null;
+                return;
+            }
+
+            // Bring card to front
+            activeCardElement.style.zIndex = 1000;
+            
+            const rect = activeCardElement.getBoundingClientRect();
+            
+            if (e.type === 'touchstart') {
+                e.preventDefault(); // Prevent scrolling and other default touch actions
+                initialX = e.touches[0].clientX - rect.left;
+                initialY = e.touches[0].clientY - rect.top;
+            } else {
+                initialX = e.clientX - rect.left;
+                initialY = e.clientY - rect.top;
+            }
+
+            document.addEventListener('mousemove', drag);
+            document.addEventListener('touchmove', drag, { passive: false });
+            document.addEventListener('mouseup', dragEnd);
+            document.addEventListener('touchend', dragEnd);
+        }
+    }
+
+    function drag(e) {
+        if (!activeCardElement) return;
+
+        e.preventDefault();
+
+        let currentX, currentY;
+        if (e.type === 'touchmove') {
+            currentX = e.touches[0].clientX;
+            currentY = e.touches[0].clientY;
+        } else {
+            currentX = e.clientX;
+            currentY = e.clientY;
+        }
+
+        const readingAreaRect = readingArea.getBoundingClientRect();
+        let newX = currentX - readingAreaRect.left - initialX;
+        let newY = currentY - readingAreaRect.top - initialY;
+        
+        // If the card is reversed and flipped, adjust the offset
+        const cardState = dealtCards.find(c => c.cardData.id == activeCardElement.dataset.id);
+        if (cardState && cardState.cardData.isReversed && cardState.cardData.isFlipped) {
+             newX = currentX - readingAreaRect.left - (activeCardElement.offsetWidth - initialX);
+             newY = currentY - readingAreaRect.top - (activeCardElement.offsetHeight - initialY);
+        }
+
+        setTranslate(newX, newY, activeCardElement);
+    }
+
+    function dragEnd(e) {
+        if (!activeCardElement) return;
+        
+        // Remove listeners
+        document.removeEventListener('mousemove', drag);
+        document.removeEventListener('touchmove', drag);
+        document.removeEventListener('mouseup', dragEnd);
+        document.removeEventListener('touchend', dragEnd);
+
+        const cardState = dealtCards.find(c => c.cardData.id == activeCardElement.dataset.id);
+        const readingAreaRect = readingArea.getBoundingClientRect();
+        const cardRect = activeCardElement.getBoundingClientRect();
+
+        // Check if card is dropped in the reading area
+        if (cardRect.top > readingAreaRect.top) {
+            if (!cardState.inReadingArea) {
+                readingArea.appendChild(activeCardElement);
+                cardState.inReadingArea = true;
+            }
+            activeCardElement.style.zIndex = 'auto';
+        } else {
+            // Snap back to lineup if not dropped in reading area
+            cardLineup.appendChild(activeCardElement);
+            cardState.inReadingArea = false;
+            dealCards(); // Redraw lineup to place it back
+        }
+        
+        activeCardElement = null;
+    }
+
+    function setTranslate(xPos, yPos, el) {
+        el.style.left = `${xPos}px`;
+        el.style.top = `${yPos}px`;
+    }
+
+
     // --- Event Listeners ---
     document.getElementById('deck').addEventListener('click', cutDeckAnimation);
     
@@ -291,51 +374,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     cardModal.addEventListener('click', () => hideModal(cardModal));
     
-    // Stop modal from closing when clicking inside content
     document.querySelectorAll('.modal-content').forEach(el => {
         el.addEventListener('click', (e) => e.stopPropagation());
     });
 
-    readingArea.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
-    });
-
-    readingArea.addEventListener('drop', (e) => {
-        e.preventDefault();
-        const cardId = e.dataTransfer.getData('text/plain');
-        let offsetX = parseInt(e.dataTransfer.getData('text/offset-x'), 10);
-        let offsetY = parseInt(e.dataTransfer.getData('text/offset-y'), 10);
-        const cardState = dealtCards.find(c => c.cardData.id == cardId);
-        
-        if (cardState) {
-            const cardElement = cardState.element;
-
-            if (cardState.cardData.isReversed && cardState.cardData.isFlipped) {
-                offsetX = cardElement.offsetWidth - offsetX;
-                offsetY = cardElement.offsetHeight - offsetY;
-            }
-
-            if (!cardState.inReadingArea) {
-                readingArea.appendChild(cardElement);
-                cardState.inReadingArea = true;
-            }
-            cardElement.style.zIndex = 'auto';
-            const rect = readingArea.getBoundingClientRect();
-            const x = e.clientX - rect.left - offsetX;
-            const y = e.clientY - rect.top - offsetY;
-            
-            cardElement.classList.add('no-transition');
-            cardElement.style.left = `${x}px`;
-            cardElement.style.top = `${y}px`;
-            cardElement.style.opacity = '1';
-            cardElement.style.pointerEvents = 'auto';
-
-            setTimeout(() => {
-                cardElement.classList.remove('no-transition');
-            }, 50);
-        }
-    });
     window.addEventListener('resize', () => {
         if(mainScene.classList.contains('active')) {
             dealCards();
