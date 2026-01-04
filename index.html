@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tarot Reading</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <main id="app">
+        <!-- Shuffling Scene -->
+        <div id="shuffle-scene" class="scene active">
+            <h1>Shuffle the Deck</h1>
+            <p>Click the deck to cut it.</p>
+            <div id="deck">
+                <div id="animated-packet">
+                    <div class="deck-card" id="deck-card-3"><img src="cards/back.png" alt="card in stack"></div>
+                    <div class="deck-card" id="deck-card-2"><img src="cards/back.png" alt="card in stack"></div>
+                    <div class="deck-card" id="deck-card-1"><img src="cards/back.png" alt="card in stack"></div>
+                    <div id="deck-top">
+                        <img src="cards/back.png" alt="Top half of deck">
+                    </div>
+                </div>
+                <div id="deck-bottom">
+                    <img src="cards/back.png" alt="Bottom half of deck">
+                </div>
+            </div>
+            <button id="start-btn">Start Reading</button>
+            <button id="settings-btn">Settings</button>
+        </div>
+
+        <!-- Settings Modal -->
+        <div id="settings-modal" class="modal">
+            <div class="modal-content">
+                <h2>Settings</h2>
+                <div class="setting-option">
+                    <input type="checkbox" id="allow-reverse-checkbox" checked>
+                    <label for="allow-reverse-checkbox">Allow Reversed Cards</label>
+                </div>
+                <button id="close-settings-btn">Close</button>
+            </div>
+        </div>
+
+        <!-- Main Reading Scene -->
+        <div id="main-scene" class="scene">
+            <header>
+                <button id="redeal-btn">Redeal</button>
+                <button id="screenshot-btn">Screenshot</button>
+            </header>
+            <div id="card-lineup">
+                <!-- Facedown cards will be generated here by JS -->
+            </div>
+            <div id="reading-area">
+                <!-- Cards will be dragged here -->
+            </div>
+        </div>
+
+        <!-- Card Modal -->
+        <div id="card-modal" class="modal">
+            <div class="modal-content">
+                <button id="toggle-meanings-btn">Hide Meanings</button>
+                <button id="theme-btn">Light Mode</button>
+                <img id="modal-card-img" src="" alt="Card Image">
+                <h2 id="modal-card-name"></h2>
+                <div id="modal-card-orientation"></div>
+                <div id="meanings-container">
+                    <h3>Upright Meaning</h3>
+                    <p id="modal-meaning-up"></p>
+                    <h3>Reversed Meaning</h3>
+                    <p id="modal-meaning-rev"></p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script src="data.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
