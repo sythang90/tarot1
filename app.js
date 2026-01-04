@@ -28,14 +28,13 @@ document.addEventListener('DOMContentLoaded', () => {
     let dealtCards = [];
     let isAnimating = false;
 
-    // --- Drag State ---
+    // --- Unified Pointer Drag State ---
     let activeCard = null;
+    let dragOccurred = false;
     let startX, startY;
     let currentX, currentY;
     let initialCardLeft, initialCardTop;
-    let touchStartTime = 0;
-    const TAP_DURATION_THRESHOLD = 300; // Increased for better mobile response
-    const TAP_DISTANCE_THRESHOLD = 15; // Pixels allowed for a tap
+    let rafId = null;
 
     // --- Core Functions ---
     function shuffleDeck(cards) {
@@ -95,13 +94,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="card-face card-back"><img src="cards/back.png" alt="Card Back"></div>
                 <div class="card-face card-front"><img src="cards/${card.img}" alt="${card.name}"></div>
             </div>`;
-        cardDiv.addEventListener('mousedown', dragStart);
-        cardDiv.addEventListener('touchstart', dragStart, { passive: false });
+        
+        // Use Pointer Events for unified Mouse/Touch support
+        cardDiv.addEventListener('pointerdown', onPointerDown);
         mainScene.appendChild(cardDiv);
         return cardDiv;
     }
     
-    function handleCardTap(cardElement) {
+    function handleCardFlipOrDetails(cardElement) {
         const cardState = dealtCards.find(c => c.cardData.id == cardElement.dataset.id);
         if (!cardState || !cardState.inReadingArea) return;
 
@@ -164,88 +164,81 @@ document.addEventListener('DOMContentLoaded', () => {
         dealtCards = deck.map(card => ({ element: createCardElement(card), cardData: card, inReadingArea: false }));
     }
 
-    // --- Refined Drag Logic ---
-    function dragStart(e) {
+    // --- Unified Pointer Events Logic ---
+    function onPointerDown(e) {
         const el = e.target.closest('.card');
         if (!el) return;
 
-        e.preventDefault();
         activeCard = el;
-        touchStartTime = Date.now();
+        dragOccurred = false;
         
-        startX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
-        startY = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY;
+        startX = e.clientX;
+        startY = e.clientY;
         currentX = startX;
         currentY = startY;
         
         initialCardLeft = activeCard.offsetLeft;
         initialCardTop = activeCard.offsetTop;
 
+        activeCard.setPointerCapture(e.pointerId);
         activeCard.classList.add('dragging');
         
-        document.addEventListener('mousemove', dragMove);
-        document.addEventListener('touchmove', dragMove, { passive: false });
-        document.addEventListener('mouseup', dragEnd);
-        document.addEventListener('touchend', dragEnd);
+        activeCard.addEventListener('pointermove', onPointerMove);
+        activeCard.addEventListener('pointerup', onPointerUp);
+        activeCard.addEventListener('pointercancel', onPointerUp);
 
-        // Immediate first frame
-        updateDragPosition();
+        rafId = requestAnimationFrame(updateDragVisuals);
     }
 
-    function dragMove(e) {
+    function onPointerMove(e) {
         if (!activeCard) return;
-        e.preventDefault();
-        currentX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
-        currentY = e.type === 'touchmove' ? e.touches[0].clientY : e.clientY;
-        updateDragPosition();
+        currentX = e.clientX;
+        currentY = e.clientY;
+
+        const dist = Math.sqrt(Math.pow(currentX - startX, 2) + Math.pow(currentY - startY, 2));
+        if (dist > 5) dragOccurred = true;
     }
 
-    function updateDragPosition() {
+    function updateDragVisuals() {
         if (!activeCard) return;
         const deltaX = currentX - startX;
         const deltaY = currentY - startY;
         activeCard.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0)`;
+        rafId = requestAnimationFrame(updateDragVisuals);
     }
 
-    function dragEnd(e) {
+    function onPointerUp(e) {
         if (!activeCard) return;
-
-        const duration = Date.now() - touchStartTime;
-        const deltaX = currentX - startX;
-        const deltaY = currentY - startY;
-        const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-
-        document.removeEventListener('mousemove', dragMove);
-        document.removeEventListener('touchmove', dragMove);
-        document.removeEventListener('mouseup', dragEnd);
-        document.removeEventListener('touchend', dragEnd);
+        
+        cancelAnimationFrame(rafId);
+        activeCard.classList.remove('dragging');
+        activeCard.releasePointerCapture(e.pointerId);
+        
+        activeCard.removeEventListener('pointermove', onPointerMove);
+        activeCard.removeEventListener('pointerup', onPointerUp);
+        activeCard.removeEventListener('pointercancel', onPointerUp);
 
         const card = activeCard;
-        const cardState = dealtCards.find(c => c.cardData.id == card.dataset.id);
-        
-        // Final position calculation
-        const finalLeft = initialCardLeft + deltaX;
-        const finalTop = initialCardTop + deltaY;
-
-        // Force instant snap
-        card.classList.add('no-transition');
-        card.style.transform = '';
-        card.style.left = `${finalLeft}px`;
-        card.style.top = `${finalTop}px`;
-
-        // Small delay to allow browser to commit styles before re-enabling transitions
-        setTimeout(() => {
-            card.classList.remove('no-transition');
-            card.classList.remove('dragging');
-        }, 50);
-
+        const deltaX = currentX - startX;
+        const deltaY = currentY - startY;
         activeCard = null;
 
-        // Determine if this was a Tap or a Drag
-        if (duration < TAP_DURATION_THRESHOLD && distance < TAP_DISTANCE_THRESHOLD) {
-            handleCardTap(card);
+        if (!dragOccurred) {
+            // It was a tap
+            card.style.transform = '';
+            handleCardFlipOrDetails(card);
         } else {
-            // Drop logic
+            // It was a drag - finalize position
+            const finalLeft = initialCardLeft + deltaX;
+            const finalTop = initialCardTop + deltaY;
+
+            card.classList.add('no-transition');
+            card.style.transform = '';
+            card.style.left = `${finalLeft}px`;
+            card.style.top = `${finalTop}px`;
+
+            // Commit position to state
+            const cardState = dealtCards.find(c => c.cardData.id == card.dataset.id);
             const readingAreaRect = readingArea.getBoundingClientRect();
             const cardCenterY = card.getBoundingClientRect().top + (card.offsetHeight / 2);
             
@@ -255,6 +248,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 cardState.inReadingArea = false;
                 layoutCards();
             }
+
+            // Restore transitions
+            setTimeout(() => card.classList.remove('no-transition'), 50);
         }
     }
 
