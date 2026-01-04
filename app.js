@@ -28,10 +28,11 @@ document.addEventListener('DOMContentLoaded', () => {
     let dealtCards = [];
     let isAnimating = false;
 
-    // --- Drag State (for new touch/mouse logic) ---
-    let activeCardState = null;
+    // --- Drag State ---
+    let activeCard = null;
     let isDragging = false;
-    let startX, startY, initialLeft, initialTop;
+    let startX, startY;
+    let initialCardX, initialCardY;
 
     // --- Core Functions ---
     function shuffleDeck(cards) {
@@ -43,48 +44,41 @@ document.addEventListener('DOMContentLoaded', () => {
         return shuffled.map((card, index) => ({ ...card, id: index, isReversed: false, isFlipped: false }));
     }
 
-    function dealCards() {
-        cardLineup.innerHTML = '';
+    function layoutCards() {
         const lineupWidth = cardLineup.clientWidth - 20;
         const cardWidth = parseInt(getComputedStyle(root).getPropertyValue('--card-width'));
-        const halfPoint = Math.ceil(deck.length / 2);
+        const halfPoint = Math.ceil(dealtCards.length / 2);
 
-        const cardsInFirstRowCount = dealtCards.filter(c => !c.inReadingArea && deck.findIndex(card => card.id === c.cardData.id) < halfPoint).length;
-        const cardsInSecondRowCount = dealtCards.filter(c => !c.inReadingArea && deck.findIndex(card => card.id === c.cardData.id) >= halfPoint).length;
+        const cardsInFirstRow = dealtCards.filter(c => !c.inReadingArea && deck.findIndex(card => card.id === c.cardData.id) < halfPoint).length;
+        const cardsInSecondRow = dealtCards.filter(c => !c.inReadingArea && deck.findIndex(card => card.id === c.cardData.id) >= halfPoint).length;
 
         const calculateSpacing = (count, w, cW) => (count > 1 && count * cW > w) ? (w - cW) / (count - 1) : cW * 0.6;
-        const spacing1 = calculateSpacing(cardsInFirstRowCount, lineupWidth, cardWidth);
-        const spacing2 = calculateSpacing(cardsInSecondRowCount, lineupWidth, cardWidth);
-
+        const spacing1 = calculateSpacing(cardsInFirstRow, lineupWidth, cardWidth);
+        const spacing2 = calculateSpacing(cardsInSecondRow, lineupWidth, cardWidth);
+        
         let row1Idx = 0, row2Idx = 0;
         dealtCards.forEach(cardState => {
+            if (cardState.inReadingArea) {
+                // Do not touch cards that are already in the reading area
+                return;
+            }
             const cardElement = cardState.element;
             const indexInDeck = deck.findIndex(card => card.id === cardState.cardData.id);
-            cardLineup.appendChild(cardElement);
-
-            if (cardState.inReadingArea) {
-                cardElement.style.opacity = '0';
-                cardElement.style.pointerEvents = 'none';
-            } else {
-                cardElement.style.opacity = '1';
-                cardElement.style.pointerEvents = 'auto';
-            }
-
-            let top, left, zIndex;
+            
+            let top, left;
             if (indexInDeck < halfPoint) {
-                top = 5;
-                left = 10 + row1Idx * spacing1;
-                zIndex = cardsInFirstRowCount - row1Idx;
-                if (!cardState.inReadingArea) row1Idx++;
+                top = cardLineup.offsetTop + 5;
+                left = cardLineup.offsetLeft + 10 + row1Idx * spacing1;
+                row1Idx++;
             } else {
-                top = cardWidth * 0.4 + 10;
-                left = 10 + row2Idx * spacing2;
-                zIndex = cardsInSecondRowCount - row2Idx;
-                if (!cardState.inReadingArea) row2Idx++;
+                top = cardLineup.offsetTop + cardWidth * 0.4 + 10;
+                left = cardLineup.offsetLeft + 10 + row2Idx * spacing2;
+                row2Idx++;
             }
-            cardElement.style.top = `${top}px`;
             cardElement.style.left = `${left}px`;
-            cardElement.style.zIndex = zIndex;
+            cardElement.style.top = `${top}px`;
+            cardElement.style.opacity = '1';
+            cardElement.style.pointerEvents = 'auto';
         });
     }
 
@@ -92,26 +86,20 @@ document.addEventListener('DOMContentLoaded', () => {
         const cardDiv = document.createElement('div');
         cardDiv.classList.add('card');
         cardDiv.dataset.id = card.id;
-        cardDiv.innerHTML = `...`; // Same as before
         cardDiv.innerHTML = `
             <div class="card-inner">
-                <div class="card-face card-back">
-                    <img src="cards/back.png" alt="Card Back">
-                </div>
-                <div class="card-face card-front">
-                    <img src="cards/${card.img}" alt="${card.name}">
-                </div>
-            </div>
-        `;
-        
+                <div class="card-face card-back"><img src="cards/back.png" alt="Card Back"></div>
+                <div class="card-face card-front"><img src="cards/${card.img}" alt="${card.name}"></div>
+            </div>`;
         cardDiv.addEventListener('mousedown', dragStart);
         cardDiv.addEventListener('touchstart', dragStart, { passive: false });
         cardDiv.addEventListener('click', handleCardClick);
+        mainScene.appendChild(cardDiv); // Append all cards to a single container
         return cardDiv;
     }
-
+    
     function handleCardClick(e) {
-        if (isDragging) return; // Prevent click if drag occurred
+        if (isDragging) return;
         const cardElement = e.target.closest('.card');
         if (!cardElement) return;
 
@@ -125,7 +113,7 @@ document.addEventListener('DOMContentLoaded', () => {
             showModal(cardState.cardData);
         }
     }
-    
+
     function showModal(card) {
         modalCardImg.src = `cards/${card.img}`;
         modalCardName.textContent = card.name;
@@ -148,7 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (sceneName === 'main') mainScene.classList.add('active');
         else shuffleScene.classList.add('active');
     }
-
+    
     function cutDeckAnimation() {
         if (isAnimating) return;
         isAnimating = true;
@@ -174,28 +162,26 @@ document.addEventListener('DOMContentLoaded', () => {
     
     function initializeDeck() {
         deck = shuffleDeck(cardData);
-        dealtCards = deck.map(card => ({ element: createCardElement(card), cardData: card, inReadingArea: false }));
+        dealtCards = deck.map(card => ({ element: createCardElement(card), cardData: card, inReadingArea: false, top: 0, left: 0 }));
     }
 
-    // --- New Drag/Touch Logic ---
+    // --- New Simplified Drag/Touch Logic ---
     function dragStart(e) {
         const cardElement = e.target.closest('.card');
         if (!cardElement) return;
 
         e.preventDefault();
         
-        activeCardState = dealtCards.find(c => c.cardData.id == cardElement.dataset.id);
-        if (!activeCardState) return;
+        activeCard = cardElement;
+        const cardState = dealtCards.find(c => c.cardData.id == activeCard.dataset.id);
         
-        const card = activeCardState.element;
-        card.classList.add('no-transition');
-        card.style.zIndex = 1000;
+        activeCard.style.zIndex = 1000;
         
         startX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
         startY = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY;
         
-        initialLeft = card.offsetLeft;
-        initialTop = card.offsetTop;
+        initialCardX = activeCard.offsetLeft;
+        initialCardY = activeCard.offsetTop;
 
         document.addEventListener('mousemove', drag);
         document.addEventListener('touchmove', drag, { passive: false });
@@ -204,7 +190,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function drag(e) {
-        if (!activeCardState) return;
+        if (!activeCard) return;
         isDragging = true;
         e.preventDefault();
 
@@ -214,46 +200,33 @@ document.addEventListener('DOMContentLoaded', () => {
         const deltaX = currentX - startX;
         const deltaY = currentY - startY;
 
-        activeCardState.element.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0)`;
+        activeCard.style.left = `${initialCardX + deltaX}px`;
+        activeCard.style.top = `${initialCardY + deltaY}px`;
     }
 
     function dragEnd(e) {
-        if (!activeCardState) return;
+        if (!activeCard) return;
 
         document.removeEventListener('mousemove', drag);
         document.removeEventListener('touchmove', drag);
         document.removeEventListener('mouseup', dragEnd);
         document.removeEventListener('touchend', dragEnd);
 
-        const card = activeCardState.element;
-        const transformMatrix = new DOMMatrix(getComputedStyle(card).transform);
-        const deltaX = transformMatrix.m41;
-        const deltaY = transformMatrix.m42;
-
-        const newLeft = initialLeft + deltaX;
-        const newTop = initialTop + deltaY;
-
-        card.style.transform = '';
-        card.style.left = `${newLeft}px`;
-        card.style.top = `${newTop}px`;
-        card.classList.remove('no-transition');
-
+        const cardState = dealtCards.find(c => c.cardData.id == activeCard.dataset.id);
         const readingAreaRect = readingArea.getBoundingClientRect();
-        if (card.getBoundingClientRect().top + (card.offsetHeight / 2) > readingAreaRect.top) {
-            if (!activeCardState.inReadingArea) {
-                readingArea.appendChild(card);
-                card.style.left = `${newLeft - cardLineup.offsetLeft}px`;
-                card.style.top = `${newTop - cardLineup.offsetTop}px`;
-                activeCardState.inReadingArea = true;
-            }
-            card.style.zIndex = 'auto';
+        
+        if (activeCard.getBoundingClientRect().top + (activeCard.offsetHeight / 2) > readingAreaRect.top) {
+            cardState.inReadingArea = true;
+            activeCard.style.zIndex = 'auto';
+        } else {
+             if (cardState.inReadingArea) { // if it was moved back to lineup
+                 cardState.inReadingArea = false;
+                 layoutCards(); // Redraw lineup to place it back
+             }
         }
-
-        setTimeout(() => {
-            isDragging = false;
-        }, 100);
-
-        activeCardState = null;
+        
+        activeCard = null;
+        setTimeout(() => { isDragging = false; }, 100);
     }
 
     // --- Event Listeners ---
@@ -265,7 +238,7 @@ document.addEventListener('DOMContentLoaded', () => {
             cs.element.classList.toggle('reversed', cs.cardData.isReversed);
         });
         goToScene('main');
-        dealCards();
+        layoutCards();
     });
     redealBtn.addEventListener('click', () => window.location.reload());
     settingsBtn.addEventListener('click', () => settingsModal.classList.add('active'));
@@ -283,7 +256,7 @@ document.addEventListener('DOMContentLoaded', () => {
     cardModal.addEventListener('click', () => hideModal(cardModal));
     document.querySelectorAll('.modal-content').forEach(el => el.addEventListener('click', e => e.stopPropagation()));
     window.addEventListener('resize', () => {
-        if(mainScene.classList.contains('active')) dealCards();
+        if(mainScene.classList.contains('active')) layoutCards();
     });
 
     function main() {
