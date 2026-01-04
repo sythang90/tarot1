@@ -28,11 +28,13 @@ document.addEventListener('DOMContentLoaded', () => {
     let dealtCards = [];
     let isAnimating = false;
 
-    // --- Drag State ---
+    // --- High Performance Drag State ---
     let activeCard = null;
-    let isDragging = false;
     let startX, startY;
-    let initialCardX, initialCardY;
+    let currentX, currentY;
+    let initialCardLeft, initialCardTop;
+    let touchStartTime = 0;
+    const TAP_DURATION_THRESHOLD = 200; // ms
 
     // --- Core Functions ---
     function shuffleDeck(cards) {
@@ -44,7 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return shuffled.map((card, index) => ({ ...card, id: index, isReversed: false, isFlipped: false }));
     }
 
-    function layoutCards(isInitial = false) {
+    function layoutCards() {
         const lineupWidth = cardLineup.clientWidth - 20;
         const cardWidth = parseInt(getComputedStyle(root).getPropertyValue('--card-width'));
         const halfPoint = Math.ceil(dealtCards.length / 2);
@@ -72,16 +74,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 left = cardLineup.offsetLeft + 10 + row2Idx * spacing2;
                 row2Idx++;
             }
-            if (isInitial) {
-                cardElement.classList.add('no-transition');
-            }
             cardElement.style.left = `${left}px`;
             cardElement.style.top = `${top}px`;
             cardElement.style.opacity = '1';
             cardElement.style.pointerEvents = 'auto';
-            if (isInitial) {
-                setTimeout(() => cardElement.classList.remove('no-transition'), 50);
-            }
         });
     }
 
@@ -100,10 +96,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return cardDiv;
     }
     
-    function handleTap(targetElement) {
-        const cardElement = targetElement.closest('.card');
-        if (!cardElement) return;
-
+    function handleCardTap(cardElement) {
         const cardState = dealtCards.find(c => c.cardData.id == cardElement.dataset.id);
         if (!cardState || !cardState.inReadingArea) return;
 
@@ -163,87 +156,91 @@ document.addEventListener('DOMContentLoaded', () => {
     
     function initializeDeck() {
         deck = shuffleDeck(cardData);
-        dealtCards = deck.map(card => ({ element: createCardElement(card), cardData: card, inReadingArea: false, top: 0, left: 0 }));
+        dealtCards = deck.map(card => ({ element: createCardElement(card), cardData: card, inReadingArea: false }));
     }
 
-    // --- Final Drag/Touch Logic ---
+    // --- Drag and Drop Logic ---
     function dragStart(e) {
-        activeCard = e.target.closest('.card');
-        if (!activeCard) return;
+        const el = e.target.closest('.card');
+        if (!el) return;
 
         e.preventDefault();
-        isDragging = false;
-        
-        activeCard.style.zIndex = 1000;
+        activeCard = el;
+        touchStartTime = Date.now();
         
         startX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
         startY = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY;
+        currentX = startX;
+        currentY = startY;
         
-        initialCardX = activeCard.offsetLeft;
-        initialCardY = activeCard.offsetTop;
+        initialCardLeft = activeCard.offsetLeft;
+        initialCardTop = activeCard.offsetTop;
 
-        document.addEventListener('mousemove', drag);
-        document.addEventListener('touchmove', drag, { passive: false });
+        activeCard.classList.add('dragging');
+        
+        document.addEventListener('mousemove', dragMove);
+        document.addEventListener('touchmove', dragMove, { passive: false });
         document.addEventListener('mouseup', dragEnd);
         document.addEventListener('touchend', dragEnd);
+
+        requestAnimationFrame(updateDragPosition);
     }
 
-    function drag(e) {
+    function dragMove(e) {
         if (!activeCard) return;
         e.preventDefault();
+        currentX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
+        currentY = e.type === 'touchmove' ? e.touches[0].clientY : e.clientY;
+    }
 
-        const currentX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
-        const currentY = e.type === 'touchmove' ? e.touches[0].clientY : e.clientY;
+    function updateDragPosition() {
+        if (!activeCard) return;
         
         const deltaX = currentX - startX;
         const deltaY = currentY - startY;
-
-        // Threshold to distinguish tap from drag
-        if (!isDragging && (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5)) {
-            isDragging = true;
-        }
-
-        if (isDragging) {
-            activeCard.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0)`;
-        }
+        
+        activeCard.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0)`;
+        
+        requestAnimationFrame(updateDragPosition);
     }
 
     function dragEnd(e) {
         if (!activeCard) return;
 
-        document.removeEventListener('mousemove', drag);
-        document.removeEventListener('touchmove', drag);
+        const duration = Date.now() - touchStartTime;
+        const deltaX = currentX - startX;
+        const deltaY = currentY - startY;
+
+        document.removeEventListener('mousemove', dragMove);
+        document.removeEventListener('touchmove', dragMove);
         document.removeEventListener('mouseup', dragEnd);
         document.removeEventListener('touchend', dragEnd);
 
-        const cardState = dealtCards.find(c => c.cardData.id == activeCard.dataset.id);
+        const card = activeCard;
+        const cardState = dealtCards.find(c => c.cardData.id == card.dataset.id);
         
-        if (isDragging) {
-            const transformMatrix = new DOMMatrix(getComputedStyle(activeCard).transform);
-            const finalDeltaX = transformMatrix.m41;
-            const finalDeltaY = transformMatrix.m42;
+        activeCard = null; // Stop updateDragPosition loop
+        card.classList.remove('dragging');
+        card.style.transform = '';
+        
+        const finalLeft = initialCardLeft + deltaX;
+        const finalTop = initialCardTop + deltaY;
+        card.style.left = `${finalLeft}px`;
+        card.style.top = `${finalTop}px`;
 
-            activeCard.style.transform = '';
-            activeCard.style.left = `${initialCardX + finalDeltaX}px`;
-            activeCard.style.top = `${initialCardY + finalDeltaY}px`;
-            
-            const readingAreaRect = readingArea.getBoundingClientRect();
-            if (activeCard.getBoundingClientRect().top + (activeCard.offsetHeight / 2) > readingAreaRect.top) {
-                cardState.inReadingArea = true;
-            } else {
-                 if (cardState.inReadingArea) {
-                     cardState.inReadingArea = false;
-                     layoutCards();
-                 }
-            }
+        // If it was a quick touch with almost no movement, treat as a tap
+        if (duration < TAP_DURATION_THRESHOLD && Math.abs(deltaX) < 10 && Math.abs(deltaY) < 10) {
+            handleCardTap(card);
         } else {
-            // This was a tap, not a drag
-            handleTap(e.target);
+            // Check if dropped in reading area
+            const readingAreaRect = readingArea.getBoundingClientRect();
+            if (card.getBoundingClientRect().top + (card.offsetHeight / 2) > readingAreaRect.top) {
+                cardState.inReadingArea = true;
+            } else if (cardState.inReadingArea) {
+                cardState.inReadingArea = false;
+                layoutCards();
+            }
         }
-        
-        activeCard.style.zIndex = 'auto';
-        activeCard = null;
-        isDragging = false;
     }
 
     // --- Event Listeners ---
@@ -255,7 +252,7 @@ document.addEventListener('DOMContentLoaded', () => {
             cs.element.classList.toggle('reversed', cs.cardData.isReversed);
         });
         goToScene('main');
-        layoutCards(true); // isInitial = true
+        layoutCards();
     });
     redealBtn.addEventListener('click', () => window.location.reload());
     settingsBtn.addEventListener('click', () => settingsModal.classList.add('active'));

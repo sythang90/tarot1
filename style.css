@@ -20,7 +20,6 @@
 }
 
 body.light-mode {
-    /* Light Mode Values */
     --modal-bg-color: rgba(255, 255, 255, 0.75);
     --modal-text-color: #333;
     --modal-border-color: rgba(255, 255, 255, 0.3);
@@ -33,6 +32,7 @@ body {
     margin: 0;
     padding: 0;
     overflow: hidden;
+    touch-action: none; /* Crucial for mobile dragging: prevents browser scroll/zoom */
 }
 
 .scene {
@@ -60,13 +60,8 @@ body {
     min-height: 168px;
 }
 
-#shuffle-scene h1 {
-    font-size: 3.6vh;
-}
-
-#shuffle-scene p {
-    font-size: 1.8vh;
-}
+#shuffle-scene h1 { font-size: 3.6vh; }
+#shuffle-scene p { font-size: 1.8vh; }
 
 #shuffle-scene #start-btn {
     padding: 1.8vh 3.6vh;
@@ -110,13 +105,10 @@ body {
     height: 100%;
 }
 
-.deck-card {
-    border-radius: 8px;
-}
+.deck-card { border-radius: 8px; }
 #deck-card-1 { transform: translate(-4px, -3px) rotate(-2deg); }
 #deck-card-2 { transform: translate(4px, -5px) rotate(3deg); }
 #deck-card-3 { transform: translate(1px, -8px) rotate(-0.5deg); }
-
 
 #deck img {
     width: 100%;
@@ -146,9 +138,7 @@ button {
     transition: background-color 0.2s;
 }
 
-button:hover {
-    background-color: var(--secondary-color);
-}
+button:hover { background-color: var(--secondary-color); }
 
 #card-lineup {
     position: relative;
@@ -173,10 +163,17 @@ button:hover {
     perspective: 1000px;
     position: absolute;
     transition: left 0.3s, top 0.3s;
+    user-select: none;
 }
 
-.no-transition {
+.card.dragging {
     transition: none !important;
+    z-index: 1000 !important;
+    will-change: transform;
+}
+
+.card.dragging .card-face {
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
 }
 
 .card-inner {
@@ -188,9 +185,7 @@ button:hover {
     cursor: grab;
 }
 
-.card.flipped .card-inner {
-    transform: rotateY(180deg);
-}
+.card.flipped .card-inner { transform: rotateY(180deg); }
 
 .card-face {
     position: absolute;
@@ -208,22 +203,14 @@ button:hover {
     border-radius: 8px;
 }
 
-.card-face.card-back {}
-
-.card-face.card-front {
-    transform: rotateY(180deg);
-}
-
-.card.reversed .card-face.card-front img {
-    transform: rotate(180deg);
-}
-
+.card-face.card-front { transform: rotateY(180deg); }
+.card.reversed .card-face.card-front img { transform: rotate(180deg); }
 
 /* Modals */
 .modal {
     display: none;
     position: fixed;
-    z-index: 1000;
+    z-index: 2000;
     left: 0;
     top: 0;
     width: 100%;
@@ -235,9 +222,7 @@ button:hover {
     align-items: center;
 }
 
-.modal.active {
-    display: flex;
-}
+.modal.active { display: flex; }
 
 .modal-content {
     position: relative;
@@ -255,35 +240,20 @@ button:hover {
 
 #settings-modal .modal-content {
     max-width: 400px;
-    color: var(--modal-text-color); /* Use modal text color for consistency */
-    background-color: var(--modal-bg-color); /* Use modal bg color for consistency */
+    color: var(--modal-text-color);
+    background-color: var(--modal-bg-color);
 }
 
-#settings-modal .modal-content .setting-option label {
-    color: var(--modal-text-color); /* Ensure label text color is correct in settings modal */
-}
-
-.setting-option {
-    margin: 20px 0;
-}
-
-#close-settings-btn {
-    margin-top: 10px;
-}
-
-/* Styles for #modal-card-orientation */
 #modal-card-orientation {
     font-style: italic;
     font-size: 1.1em;
-    color: white; /* Changed from #e74c3c to white */
+    color: white;
     margin-bottom: 10px;
 }
 
-/* Theme Button (Top Right) */
-#theme-btn {
+#theme-btn, #toggle-meanings-btn {
     position: absolute;
     top: 15px;
-    right: 15px;
     padding: 5px 10px;
     font-size: 0.8rem;
     border-radius: 20px;
@@ -293,27 +263,10 @@ button:hover {
     cursor: pointer;
     z-index: 10;
 }
+#theme-btn { right: 15px; }
+#toggle-meanings-btn { left: 15px; }
 
-body.light-mode #theme-btn {
-    background-color: rgba(0, 0, 0, 0.1);
-}
-
-/* Toggle Meanings Button (Top Left) */
-#toggle-meanings-btn {
-    position: absolute;
-    top: 15px;
-    left: 15px;
-    padding: 5px 10px;
-    font-size: 0.8rem;
-    border-radius: 20px;
-    background-color: rgba(255, 255, 255, 0.1);
-    border: 1px solid var(--modal-border-color);
-    color: var(--modal-text-color);
-    cursor: pointer;
-    z-index: 10;
-}
-
-body.light-mode #toggle-meanings-btn {
+body.light-mode #theme-btn, body.light-mode #toggle-meanings-btn {
     background-color: rgba(0, 0, 0, 0.1);
 }
 
@@ -324,58 +277,19 @@ body.light-mode #toggle-meanings-btn {
     margin-top: 30px;
 }
 
-#meanings-container {
-    display: none;
-}
+#meanings-container { display: none; }
 
-/* Responsive Design */
 @media (max-width: 768px) {
     :root {
         --card-width: var(--card-width-mobile);
         --card-height: var(--card-height-mobile);
     }
-
-    h1 {
-        font-size: 1.5rem;
-    }
-
-    button {
-        padding: 8px 12px;
-        font-size: 0.9rem;
-    }
-
-    #card-lineup {
-        min-height: 120px;
-    }
-
-    .modal-content {
-        width: 95%;
-        max-width: 95%;
-        max-height: 90%;
-        padding: 15px;
-    }
-    
-    #theme-btn, #toggle-meanings-btn {
-        top: 10px;
-    }
-    #theme-btn { right: 10px; }
-    #toggle-meanings-btn { left: 10px; }
-
-
-    .modal-content img {
-        max-width: 25vh;
-        max-height: 40vh;
-    }
-
-    .modal-content h2 {
-        font-size: 1.2rem;
-    }
-
-    .modal-content h3 {
-        font-size: 1rem;
-    }
-
-    .modal-content p {
-        font-size: 0.9rem;
-    }
+    h1 { font-size: 1.5rem; }
+    button { padding: 8px 12px; font-size: 0.9rem; }
+    #card-lineup { min-height: 120px; }
+    .modal-content { width: 95%; max-width: 95%; max-height: 90%; padding: 15px; }
+    #theme-btn, #toggle-meanings-btn { top: 10px; }
+    .modal-content img { max-width: 25vh; max-height: 40vh; }
+    .modal-content h2 { font-size: 1.2rem; }
+    .modal-content h3 { font-size: 1rem; }
 }
