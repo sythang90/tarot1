@@ -27,8 +27,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let deck = [];
     let dealtCards = [];
     let isAnimating = false;
-
-    // --- Drag State ---
     let activeCard = null;
     let isDragging = false;
     let startX, startY;
@@ -58,10 +56,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         let row1Idx = 0, row2Idx = 0;
         dealtCards.forEach(cardState => {
-            if (cardState.inReadingArea) {
-                // Do not touch cards that are already in the reading area
-                return;
-            }
+            if (cardState.inReadingArea) return;
             const cardElement = cardState.element;
             const indexInDeck = deck.findIndex(card => card.id === cardState.cardData.id);
             
@@ -93,13 +88,11 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>`;
         cardDiv.addEventListener('mousedown', dragStart);
         cardDiv.addEventListener('touchstart', dragStart, { passive: false });
-        cardDiv.addEventListener('click', handleCardClick);
-        mainScene.appendChild(cardDiv); // Append all cards to a single container
+        mainScene.appendChild(cardDiv);
         return cardDiv;
     }
     
-    function handleCardClick(e) {
-        if (isDragging) return;
+    function handleTap(e) {
         const cardElement = e.target.closest('.card');
         if (!cardElement) return;
 
@@ -171,10 +164,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!cardElement) return;
 
         e.preventDefault();
-        
+        isDragging = false; // Reset dragging flag
         activeCard = cardElement;
-        const cardState = dealtCards.find(c => c.cardData.id == activeCard.dataset.id);
         
+        activeCard.classList.add('no-transition'); // Disable transition for immediate response
         activeCard.style.zIndex = 1000;
         
         startX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
@@ -191,7 +184,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function drag(e) {
         if (!activeCard) return;
-        isDragging = true;
+        isDragging = true; // Set flag if move occurs
         e.preventDefault();
 
         const currentX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
@@ -217,16 +210,22 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (activeCard.getBoundingClientRect().top + (activeCard.offsetHeight / 2) > readingAreaRect.top) {
             cardState.inReadingArea = true;
-            activeCard.style.zIndex = 'auto';
         } else {
-             if (cardState.inReadingArea) { // if it was moved back to lineup
+             if (cardState.inReadingArea) {
                  cardState.inReadingArea = false;
-                 layoutCards(); // Redraw lineup to place it back
+                 layoutCards();
              }
         }
         
+        activeCard.style.zIndex = 'auto';
+        activeCard.classList.remove('no-transition');
+        
+        // If it wasn't a drag, it was a tap
+        if (!isDragging) {
+            handleTap(e);
+        }
+
         activeCard = null;
-        setTimeout(() => { isDragging = false; }, 100);
     }
 
     // --- Event Listeners ---
