@@ -28,13 +28,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let dealtCards = [];
     let isAnimating = false;
 
-    // --- Unified Pointer Drag State ---
+    // --- Drag/Tap State ---
     let activeCard = null;
-    let dragOccurred = false;
+    let startTime = 0;
     let startX, startY;
-    let currentX, currentY;
-    let initialCardLeft, initialCardTop;
-    let rafId = null;
+    let initialLeft, initialTop;
+    let hasMoved = false;
 
     // --- Core Functions ---
     function shuffleDeck(cards) {
@@ -95,13 +94,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="card-face card-front"><img src="cards/${card.img}" alt="${card.name}"></div>
             </div>`;
         
-        // Use Pointer Events for unified Mouse/Touch support
-        cardDiv.addEventListener('pointerdown', onPointerDown);
+        cardDiv.addEventListener('mousedown', onStart);
+        cardDiv.addEventListener('touchstart', onStart, { passive: false });
         mainScene.appendChild(cardDiv);
         return cardDiv;
     }
     
-    function handleCardFlipOrDetails(cardElement) {
+    function handleFlip(cardElement) {
         const cardState = dealtCards.find(c => c.cardData.id == cardElement.dataset.id);
         if (!cardState || !cardState.inReadingArea) return;
 
@@ -164,81 +163,68 @@ document.addEventListener('DOMContentLoaded', () => {
         dealtCards = deck.map(card => ({ element: createCardElement(card), cardData: card, inReadingArea: false }));
     }
 
-    // --- Unified Pointer Events Logic ---
-    function onPointerDown(e) {
+    // --- Core Drag/Tap Logic ---
+    function onStart(e) {
         const el = e.target.closest('.card');
         if (!el) return;
 
+        if (e.cancelable) e.preventDefault();
+
         activeCard = el;
-        dragOccurred = false;
-        
-        startX = e.clientX;
-        startY = e.clientY;
-        currentX = startX;
-        currentY = startY;
-        
-        initialCardLeft = activeCard.offsetLeft;
-        initialCardTop = activeCard.offsetTop;
+        startTime = Date.now();
+        hasMoved = false;
 
-        activeCard.setPointerCapture(e.pointerId);
+        const point = e.touches ? e.touches[0] : e;
+        startX = point.clientX;
+        startY = point.clientY;
+
+        initialLeft = activeCard.offsetLeft;
+        initialTop = activeCard.offsetTop;
+
         activeCard.classList.add('dragging');
-        
-        activeCard.addEventListener('pointermove', onPointerMove);
-        activeCard.addEventListener('pointerup', onPointerUp);
-        activeCard.addEventListener('pointercancel', onPointerUp);
 
-        rafId = requestAnimationFrame(updateDragVisuals);
+        const moveEvent = e.touches ? 'touchmove' : 'mousemove';
+        const endEvent = e.touches ? 'touchend' : 'mouseup';
+
+        document.addEventListener(moveEvent, onMove, { passive: false });
+        document.addEventListener(endEvent, onEnd);
     }
 
-    function onPointerMove(e) {
+    function onMove(e) {
         if (!activeCard) return;
-        currentX = e.clientX;
-        currentY = e.clientY;
+        const point = e.touches ? e.touches[0] : e;
+        const dx = point.clientX - startX;
+        const dy = point.clientY - startY;
 
-        const dist = Math.sqrt(Math.pow(currentX - startX, 2) + Math.pow(currentY - startY, 2));
-        if (dist > 5) dragOccurred = true;
+        if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+            hasMoved = true;
+        }
+
+        activeCard.style.left = `${initialLeft + dx}px`;
+        activeCard.style.top = `${initialTop + dy}px`;
     }
 
-    function updateDragVisuals() {
+    function onEnd(e) {
         if (!activeCard) return;
-        const deltaX = currentX - startX;
-        const deltaY = currentY - startY;
-        activeCard.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0)`;
-        rafId = requestAnimationFrame(updateDragVisuals);
-    }
 
-    function onPointerUp(e) {
-        if (!activeCard) return;
-        
-        cancelAnimationFrame(rafId);
-        activeCard.classList.remove('dragging');
-        activeCard.releasePointerCapture(e.pointerId);
-        
-        activeCard.removeEventListener('pointermove', onPointerMove);
-        activeCard.removeEventListener('pointerup', onPointerUp);
-        activeCard.removeEventListener('pointercancel', onPointerUp);
+        const duration = Date.now() - startTime;
+        const moveEvent = e.touches ? 'touchmove' : 'mousemove';
+        const endEvent = e.touches ? 'touchend' : 'mouseup';
+
+        document.removeEventListener(moveEvent, onMove);
+        document.removeEventListener(endEvent, onEnd);
 
         const card = activeCard;
-        const deltaX = currentX - startX;
-        const deltaY = currentY - startY;
+        const cardState = dealtCards.find(c => c.cardData.id == card.dataset.id);
+        
+        card.classList.remove('dragging');
         activeCard = null;
 
-        if (!dragOccurred) {
-            // It was a tap
-            card.style.transform = '';
-            handleCardFlipOrDetails(card);
+        // Duration Check for Tap
+        if (duration < 250 && !hasMoved) {
+            handleFlip(card);
         } else {
-            // It was a drag - finalize position
-            const finalLeft = initialCardLeft + deltaX;
-            const finalTop = initialCardTop + deltaY;
-
-            card.classList.add('no-transition');
-            card.style.transform = '';
-            card.style.left = `${finalLeft}px`;
-            card.style.top = `${finalTop}px`;
-
-            // Commit position to state
-            const cardState = dealtCards.find(c => c.cardData.id == card.dataset.id);
+            // Drag End Logic
             const readingAreaRect = readingArea.getBoundingClientRect();
             const cardCenterY = card.getBoundingClientRect().top + (card.offsetHeight / 2);
             
@@ -248,13 +234,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 cardState.inReadingArea = false;
                 layoutCards();
             }
-
-            // Restore transitions
-            setTimeout(() => card.classList.remove('no-transition'), 50);
         }
     }
 
-    // --- Global Event Listeners ---
+    // --- UI Listeners ---
     document.getElementById('deck').addEventListener('click', cutDeckAnimation);
     startBtn.addEventListener('click', () => {
         const allowReverse = allowReverseCheckbox.checked;
