@@ -28,12 +28,13 @@ document.addEventListener('DOMContentLoaded', () => {
     let dealtCards = [];
     let isAnimating = false;
 
-    // --- Drag/Tap State ---
+    // --- High Performance Drag/Tap State ---
     let activeCard = null;
     let startTime = 0;
     let startX, startY;
     let initialLeft, initialTop;
-    let hasMoved = false;
+    let currentTranslateX = 0;
+    let currentTranslateY = 0;
 
     // --- Core Functions ---
     function shuffleDeck(cards) {
@@ -77,6 +78,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             cardElement.style.left = `${left}px`;
             cardElement.style.top = `${top}px`;
+            cardElement.style.transform = '';
             cardElement.style.opacity = '1';
             cardElement.style.pointerEvents = 'auto';
             
@@ -94,13 +96,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="card-face card-front"><img src="cards/${card.img}" alt="${card.name}"></div>
             </div>`;
         
-        cardDiv.addEventListener('mousedown', onStart);
-        cardDiv.addEventListener('touchstart', onStart, { passive: false });
+        cardDiv.addEventListener('mousedown', onPointerStart);
+        cardDiv.addEventListener('touchstart', onPointerStart, { passive: false });
         mainScene.appendChild(cardDiv);
         return cardDiv;
     }
     
-    function handleFlip(cardElement) {
+    function handleFlipAction(cardElement) {
         const cardState = dealtCards.find(c => c.cardData.id == cardElement.dataset.id);
         if (!cardState || !cardState.inReadingArea) return;
 
@@ -163,8 +165,8 @@ document.addEventListener('DOMContentLoaded', () => {
         dealtCards = deck.map(card => ({ element: createCardElement(card), cardData: card, inReadingArea: false }));
     }
 
-    // --- Core Drag/Tap Logic ---
-    function onStart(e) {
+    // --- Pointer Logic ---
+    function onPointerStart(e) {
         const el = e.target.closest('.card');
         if (!el) return;
 
@@ -172,8 +174,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         activeCard = el;
         startTime = Date.now();
-        hasMoved = false;
-
+        
         const point = e.touches ? e.touches[0] : e;
         startX = point.clientX;
         startY = point.clientY;
@@ -182,37 +183,34 @@ document.addEventListener('DOMContentLoaded', () => {
         initialTop = activeCard.offsetTop;
 
         activeCard.classList.add('dragging');
+        activeCard.style.zIndex = 5000;
 
         const moveEvent = e.touches ? 'touchmove' : 'mousemove';
         const endEvent = e.touches ? 'touchend' : 'mouseup';
 
-        document.addEventListener(moveEvent, onMove, { passive: false });
-        document.addEventListener(endEvent, onEnd);
+        document.addEventListener(moveEvent, onPointerMove, { passive: false });
+        document.addEventListener(endEvent, onPointerEnd);
     }
 
-    function onMove(e) {
+    function onPointerMove(e) {
         if (!activeCard) return;
         const point = e.touches ? e.touches[0] : e;
-        const dx = point.clientX - startX;
-        const dy = point.clientY - startY;
+        currentTranslateX = point.clientX - startX;
+        currentTranslateY = point.clientY - startY;
 
-        if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
-            hasMoved = true;
-        }
-
-        activeCard.style.left = `${initialLeft + dx}px`;
-        activeCard.style.top = `${initialTop + dy}px`;
+        // Use transform for hardware-accelerated "light" dragging
+        activeCard.style.transform = `translate3d(${currentTranslateX}px, ${currentTranslateY}px, 0)`;
     }
 
-    function onEnd(e) {
+    function onPointerEnd(e) {
         if (!activeCard) return;
 
         const duration = Date.now() - startTime;
         const moveEvent = e.touches ? 'touchmove' : 'mousemove';
         const endEvent = e.touches ? 'touchend' : 'mouseup';
 
-        document.removeEventListener(moveEvent, onMove);
-        document.removeEventListener(endEvent, onEnd);
+        document.removeEventListener(moveEvent, onPointerMove);
+        document.removeEventListener(endEvent, onPointerEnd);
 
         const card = activeCard;
         const cardState = dealtCards.find(c => c.cardData.id == card.dataset.id);
@@ -220,21 +218,38 @@ document.addEventListener('DOMContentLoaded', () => {
         card.classList.remove('dragging');
         activeCard = null;
 
-        // Duration Check for Tap
-        if (duration < 250 && !hasMoved) {
-            handleFlip(card);
+        // DURATION BASED DETECTION
+        if (duration < 250) {
+            // It was a TAP: Reset position and flip
+            card.style.transform = '';
+            handleFlipAction(card);
         } else {
-            // Drag End Logic
+            // It was a DRAG: Finalize position
+            const finalLeft = initialLeft + currentTranslateX;
+            const finalTop = initialTop + currentTranslateY;
+
+            card.classList.add('no-transition');
+            card.style.transform = '';
+            card.style.left = `${finalLeft}px`;
+            card.style.top = `${finalTop}px`;
+
             const readingAreaRect = readingArea.getBoundingClientRect();
-            const cardCenterY = card.getBoundingClientRect().top + (card.offsetHeight / 2);
+            const cardRect = card.getBoundingClientRect();
             
-            if (cardCenterY > readingAreaRect.top) {
+            if (cardRect.top + (cardRect.height / 2) > readingAreaRect.top) {
                 cardState.inReadingArea = true;
-            } else if (cardState.inReadingArea) {
-                cardState.inReadingArea = false;
-                layoutCards();
+                card.style.zIndex = 'auto';
+            } else {
+                if (cardState.inReadingArea) {
+                    cardState.inReadingArea = false;
+                    layoutCards();
+                }
             }
+            setTimeout(() => card.classList.remove('no-transition'), 50);
         }
+        
+        currentTranslateX = 0;
+        currentTranslateY = 0;
     }
 
     // --- UI Listeners ---
@@ -257,7 +272,7 @@ document.addEventListener('DOMContentLoaded', () => {
         themeBtn.textContent = document.body.classList.contains('light-mode') ? 'Dark Mode' : 'Light Mode';
     });
     toggleMeaningsBtn.addEventListener('click', () => {
-        const isHidden = meaningsContainer.style.display === 'none';
+        const isHidden = meaningsContainer.style.display === 'none' || getComputedStyle(meaningsContainer).display === 'none';
         meaningsContainer.style.display = isHidden ? 'block' : 'none';
         toggleMeaningsBtn.textContent = isHidden ? 'Hide Meanings' : 'Show Meanings';
     });
