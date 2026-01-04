@@ -28,13 +28,14 @@ document.addEventListener('DOMContentLoaded', () => {
     let dealtCards = [];
     let isAnimating = false;
 
-    // --- High Performance Drag State ---
+    // --- Drag State ---
     let activeCard = null;
     let startX, startY;
     let currentX, currentY;
     let initialCardLeft, initialCardTop;
     let touchStartTime = 0;
-    const TAP_DURATION_THRESHOLD = 200; // ms
+    const TAP_DURATION_THRESHOLD = 300; // Increased for better mobile response
+    const TAP_DISTANCE_THRESHOLD = 15; // Pixels allowed for a tap
 
     // --- Core Functions ---
     function shuffleDeck(cards) {
@@ -46,7 +47,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return shuffled.map((card, index) => ({ ...card, id: index, isReversed: false, isFlipped: false }));
     }
 
-    function layoutCards() {
+    function layoutCards(isInitial = false) {
         const lineupWidth = cardLineup.clientWidth - 20;
         const cardWidth = parseInt(getComputedStyle(root).getPropertyValue('--card-width'));
         const halfPoint = Math.ceil(dealtCards.length / 2);
@@ -74,10 +75,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 left = cardLineup.offsetLeft + 10 + row2Idx * spacing2;
                 row2Idx++;
             }
+            if (isInitial) cardElement.classList.add('no-transition');
+            
             cardElement.style.left = `${left}px`;
             cardElement.style.top = `${top}px`;
             cardElement.style.opacity = '1';
             cardElement.style.pointerEvents = 'auto';
+            
+            if (isInitial) setTimeout(() => cardElement.classList.remove('no-transition'), 50);
         });
     }
 
@@ -159,7 +164,7 @@ document.addEventListener('DOMContentLoaded', () => {
         dealtCards = deck.map(card => ({ element: createCardElement(card), cardData: card, inReadingArea: false }));
     }
 
-    // --- Drag and Drop Logic ---
+    // --- Refined Drag Logic ---
     function dragStart(e) {
         const el = e.target.closest('.card');
         if (!el) return;
@@ -183,7 +188,8 @@ document.addEventListener('DOMContentLoaded', () => {
         document.addEventListener('mouseup', dragEnd);
         document.addEventListener('touchend', dragEnd);
 
-        requestAnimationFrame(updateDragPosition);
+        // Immediate first frame
+        updateDragPosition();
     }
 
     function dragMove(e) {
@@ -191,17 +197,14 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
         currentX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
         currentY = e.type === 'touchmove' ? e.touches[0].clientY : e.clientY;
+        updateDragPosition();
     }
 
     function updateDragPosition() {
         if (!activeCard) return;
-        
         const deltaX = currentX - startX;
         const deltaY = currentY - startY;
-        
         activeCard.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0)`;
-        
-        requestAnimationFrame(updateDragPosition);
     }
 
     function dragEnd(e) {
@@ -210,6 +213,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const duration = Date.now() - touchStartTime;
         const deltaX = currentX - startX;
         const deltaY = currentY - startY;
+        const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
 
         document.removeEventListener('mousemove', dragMove);
         document.removeEventListener('touchmove', dragMove);
@@ -219,22 +223,33 @@ document.addEventListener('DOMContentLoaded', () => {
         const card = activeCard;
         const cardState = dealtCards.find(c => c.cardData.id == card.dataset.id);
         
-        activeCard = null; // Stop updateDragPosition loop
-        card.classList.remove('dragging');
-        card.style.transform = '';
-        
+        // Final position calculation
         const finalLeft = initialCardLeft + deltaX;
         const finalTop = initialCardTop + deltaY;
+
+        // Force instant snap
+        card.classList.add('no-transition');
+        card.style.transform = '';
         card.style.left = `${finalLeft}px`;
         card.style.top = `${finalTop}px`;
 
-        // If it was a quick touch with almost no movement, treat as a tap
-        if (duration < TAP_DURATION_THRESHOLD && Math.abs(deltaX) < 10 && Math.abs(deltaY) < 10) {
+        // Small delay to allow browser to commit styles before re-enabling transitions
+        setTimeout(() => {
+            card.classList.remove('no-transition');
+            card.classList.remove('dragging');
+        }, 50);
+
+        activeCard = null;
+
+        // Determine if this was a Tap or a Drag
+        if (duration < TAP_DURATION_THRESHOLD && distance < TAP_DISTANCE_THRESHOLD) {
             handleCardTap(card);
         } else {
-            // Check if dropped in reading area
+            // Drop logic
             const readingAreaRect = readingArea.getBoundingClientRect();
-            if (card.getBoundingClientRect().top + (card.offsetHeight / 2) > readingAreaRect.top) {
+            const cardCenterY = card.getBoundingClientRect().top + (card.offsetHeight / 2);
+            
+            if (cardCenterY > readingAreaRect.top) {
                 cardState.inReadingArea = true;
             } else if (cardState.inReadingArea) {
                 cardState.inReadingArea = false;
@@ -243,7 +258,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // --- Event Listeners ---
+    // --- Global Event Listeners ---
     document.getElementById('deck').addEventListener('click', cutDeckAnimation);
     startBtn.addEventListener('click', () => {
         const allowReverse = allowReverseCheckbox.checked;
@@ -252,7 +267,7 @@ document.addEventListener('DOMContentLoaded', () => {
             cs.element.classList.toggle('reversed', cs.cardData.isReversed);
         });
         goToScene('main');
-        layoutCards();
+        layoutCards(true);
     });
     redealBtn.addEventListener('click', () => window.location.reload());
     settingsBtn.addEventListener('click', () => settingsModal.classList.add('active'));
